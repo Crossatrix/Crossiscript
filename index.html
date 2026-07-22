@@ -178,7 +178,10 @@
             <div class="editor-wrapper">
                 <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
 Beispiel:
-/print(&quot;Hallo Welt!&quot;)"></textarea>
+/$Name = &quot;Alex&quot;
+/#Zahl = 42
+/?Aktiv = true
+/print(&quot;Die Zahl ist &quot; [#Zahl] &quot; und der Name &quot; [$Name])"></textarea>
             </div>
         </section>
 
@@ -221,6 +224,9 @@ Beispiel:
 
         // --- COMPILER ENGINE ---
 
+        // Speicher für Variablen
+        const variables = {};
+
         function runCompiler() {
             const code = codeInput.value;
             if (!code.trim()) {
@@ -229,8 +235,10 @@ Beispiel:
             }
 
             clearConsole();
+            
+            // Speicher bei jedem Durchlauf zurücksetzen
+            for (let key in variables) delete variables[key];
 
-            // Zeile für Zeile verarbeiten
             const lines = code.split('\n');
 
             for (let i = 0; i < lines.length; i++) {
@@ -243,26 +251,98 @@ Beispiel:
                 // Syntax-Prüfung: Befehle MÜSSEN mit '/' beginnen
                 if (!line.startsWith('/')) {
                     logToConsole(`SyntaxFehler (Zeile ${lineNum}): Befehl muss mit '/' beginnen: "${line}"`, true);
-                    continue;
+                    return;
                 }
 
                 // Befehl verarbeiten
-                executeCommand(line, lineNum);
+                const success = executeCommand(line, lineNum);
+                if (!success) break; // Bei Fehler Abbrechen
             }
         }
 
         function executeCommand(line, lineNum) {
-            // Regex für /print("Inhalt") oder /print('Inhalt')
-            const printRegex = /^\/print\s*\(\s*(["'])(.*?)\1\s*\)$/;
+            // 1. Zuweisung von Variablen: /$Var = "Text", /#Var = 123, /?Var = true
+            const varAssignRegex = /^\/([$#?])([a-zA-Z0-9_]+)\s*=\s*(.+)$/;
+            const varMatch = line.match(varAssignRegex);
 
-            const match = line.match(printRegex);
+            if (varMatch) {
+                const typeSymbol = varMatch[1];
+                const varName = varMatch[2];
+                const rawValue = varMatch[3].trim();
+                const fullVarKey = typeSymbol + varName;
 
-            if (match) {
-                const textToPrint = match[2];
-                logToConsole(textToPrint);
-            } else {
-                logToConsole(`SyntaxFehler (Zeile ${lineNum}): Unbekannter oder fehlerhafter Befehl: "${line}"`, true);
+                if (typeSymbol === '$') {
+                    // String Zuweisung
+                    const stringMatch = rawValue.match(/^["'](.*)["']$/);
+                    if (!stringMatch) {
+                        logToConsole(`TypFehler (Zeile ${lineNum}): Text-Variable $${varName} erwartet Anführungszeichen.`, true);
+                        return false;
+                    }
+                    variables[fullVarKey] = stringMatch[1];
+                } 
+                else if (typeSymbol === '#') {
+                    // Number Zuweisung (Ganzzahl oder Kommazahl)
+                    const numValue = Number(rawValue);
+                    if (isNaN(numValue)) {
+                        logToConsole(`TypFehler (Zeile ${lineNum}): Ungültige Zahl für #${varName}: "${rawValue}"`, true);
+                        return false;
+                    }
+                    variables[fullVarKey] = numValue;
+                } 
+                else if (typeSymbol === '?') {
+                    // Boolean Zuweisung
+                    if (rawValue === 'true' || rawValue === '1') {
+                        variables[fullVarKey] = true;
+                    } else if (rawValue === 'false' || rawValue === '0') {
+                        variables[fullVarKey] = false;
+                    } else {
+                        logToConsole(`TypFehler (Zeile ${lineNum}): Boolean-Variable ?${varName} muss true oder false sein.`, true);
+                        return false;
+                    }
+                }
+                return true;
             }
+
+            // 2. /print Befehl
+            if (line.startsWith('/print')) {
+                const printContentRegex = /^\/print\s*\((.*)\)$/;
+                const printMatch = line.match(printContentRegex);
+
+                if (!printMatch) {
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiges /print Syntax.`, true);
+                    return false;
+                }
+
+                const content = printMatch[1].trim();
+                let result = "";
+
+                // Tokens innerhalb von /print zerlegen (Strings in "" oder Variables in [...])
+                const tokenRegex = /(["'])(.*?)\1|\[\s*([$#?][a-zA-Z0-9_]+)\s*\]/g;
+                let match;
+                let lastIndex = 0;
+
+                while ((match = tokenRegex.exec(content)) !== null) {
+                    if (match[2] !== undefined) {
+                        // String-Literale
+                        result += match[2];
+                    } else if (match[3] !== undefined) {
+                        // Variablenaufruf z.B. [$Name] oder [#Zahl]
+                        const varKey = match[3];
+                        if (variables.hasOwnProperty(varKey)) {
+                            result += variables[varKey];
+                        } else {
+                            logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable [${varKey}] ist nicht definiert.`, true);
+                            return false;
+                        }
+                    }
+                }
+
+                logToConsole(result);
+                return true;
+            }
+
+            logToConsole(`SyntaxFehler (Zeile ${lineNum}): Unbekannter oder fehlerhafter Befehl: "${line}"`, true);
+            return false;
         }
     </script>
 
