@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meine Programmiersprache - IDE</title>
+    <style>
+        :root {
+            --bg-dark: #1e1e1e;
+            --bg-editor: #252526;
+            --bg-sidebar: #333333;
+            --accent: #007acc;
+            --accent-hover: #0098ff;
+            --text-light: #cccccc;
+            --text-white: #ffffff;
+            --border: #3e3e42;
+            --console-bg: #1e1e1e;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header / Toolbar */
+        header {
+            background-color: var(--bg-sidebar);
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .title {
+            font-weight: bold;
+            color: var(--text-white);
+            font-size: 1.1rem;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            background-color: var(--accent);
+            color: var(--text-white);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s ease;
+        }
+
+        button:hover {
+            background-color: var(--accent-hover);
+        }
+
+        /* Main Workspace Layout */
+        main {
+            display: flex;
+            flex: 1;
+            height: calc(100vh - 50px);
+        }
+
+        /* Editor Section */
+        .editor-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+            position: relative;
+        }
+
+        .panel-header {
+            background-color: var(--bg-sidebar);
+            padding: 8px 15px;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-light);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .editor-wrapper {
+            flex: 1;
+            position: relative;
+            background-color: var(--bg-editor);
+        }
+
+        textarea#code-input {
+            width: 100%;
+            height: 100%;
+            background-color: transparent;
+            color: var(--text-white);
+            border: none;
+            padding: 15px;
+            font-family: 'Consolas', 'Courier New', Courier, monospace;
+            font-size: 15px;
+            line-height: 1.5;
+            resize: none;
+            outline: none;
+            white-space: pre;
+            tab-size: 4;
+        }
+
+        /* Console Output Section */
+        .console-container {
+            width: 40%;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--console-bg);
+        }
+
+        #console-output {
+            flex: 1;
+            padding: 15px;
+            font-family: 'Consolas', 'Courier New', Courier, monospace;
+            font-size: 14px;
+            line-height: 1.4;
+            color: #4ec9b0;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+        }
+
+        .log-error {
+            color: #f14c4c;
+        }
+
+        /* Responsive Layout für kleine Bildschirme / Mobilgeräte */
+        @media (max-width: 768px) {
+            main {
+                flex-direction: column;
+            }
+            .console-container {
+                width: 100%;
+                height: 40%;
+                border-top: 1px solid var(--border);
+            }
+            .editor-container {
+                border-right: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title">MyLang Web Studio</div>
+        <div class="actions">
+            <button id="run-btn" onclick="runCompiler()">▶ Ausführen</button>
+            <button id="clear-btn" style="background-color: #555;" onclick="clearConsole()">Löschen</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Code Editor Pane -->
+        <section class="editor-container">
+            <div class="panel-header">Quellcode</div>
+            <div class="editor-wrapper">
+                <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier..."></textarea>
+            </div>
+        </section>
+
+        <!-- Output Pane -->
+        <section class="console-container">
+            <div class="panel-header">Konsole / Ausgabe</div>
+            <div id="console-output">
+                <div class="log-entry" style="color: #888;">// Bereit. Gib Code ein und klicke auf "Ausführen".</div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // Tab-Taste im Editor abfangen für saubere Einrückung
+        const codeInput = document.getElementById('code-input');
+        codeInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = this.selectionStart;
+                const end = this.selectionEnd;
+
+                // 4 Leerzeichen statt Tab einfügen
+                this.value = this.value.substring(0, start) + "    " + this.value.substring(end);
+                this.selectionStart = this.selectionEnd = start + 4;
+            }
+        });
+
+        // Konsolen-Hilfsfunktionen
+        function logToConsole(message, isError = false) {
+            const consoleOutput = document.getElementById('console-output');
+            const entry = document.createElement('div');
+            entry.className = isError ? 'log-entry log-error' : 'log-entry';
+            entry.textContent = message;
+            consoleOutput.appendChild(entry);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+
+        function clearConsole() {
+            document.getElementById('console-output').innerHTML = '';
+        }
+
+        // Platzhalter für die spätere Compiler-Einbindung
+        function runCompiler() {
+            const code = codeInput.value;
+            if (!code.trim()) {
+                logToConsole("[Warnung] Kein Code zum Ausführen vorhanden.", true);
+                return;
+            }
+
+            logToConsole("--- Starte Kompilierung ---");
+            
+            // Hier kommt später unser Lexer/Parser/Compiler rein!
+            logToConsole("[Info] Code empfangen (" + code.length + " Zeichen).");
+            logToConsole("[Draft Output] Der Compiler ist noch nicht angeschlossen.");
+        }
+    </script>
+
+</body>
+</html>
