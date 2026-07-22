@@ -176,7 +176,9 @@
         <section class="editor-container">
             <div class="panel-header">Quellcode</div>
             <div class="editor-wrapper">
-                <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier..."></textarea>
+                <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
+Beispiel:
+/print(&quot;Hallo Welt!&quot;)"></textarea>
             </div>
         </section>
 
@@ -198,7 +200,6 @@
                 const start = this.selectionStart;
                 const end = this.selectionEnd;
 
-                // 4 Leerzeichen statt Tab einfügen
                 this.value = this.value.substring(0, start) + "    " + this.value.substring(end);
                 this.selectionStart = this.selectionEnd = start + 4;
             }
@@ -218,7 +219,8 @@
             document.getElementById('console-output').innerHTML = '';
         }
 
-        // Platzhalter für die spätere Compiler-Einbindung
+        // --- COMPILER ENGINE ---
+
         function runCompiler() {
             const code = codeInput.value;
             if (!code.trim()) {
@@ -226,11 +228,41 @@
                 return;
             }
 
-            logToConsole("--- Starte Kompilierung ---");
-            
-            // Hier kommt später unser Lexer/Parser/Compiler rein!
-            logToConsole("[Info] Code empfangen (" + code.length + " Zeichen).");
-            logToConsole("[Draft Output] Der Compiler ist noch nicht angeschlossen.");
+            clearConsole();
+
+            // Zeile für Zeile verarbeiten
+            const lines = code.split('\n');
+
+            for (let i = 0; i < lines.length; i++) {
+                const lineNum = i + 1;
+                const line = lines[i].trim();
+
+                // Leere Zeilen überspringen
+                if (line === '') continue;
+
+                // Syntax-Prüfung: Befehle MÜSSEN mit '/' beginnen
+                if (!line.startsWith('/')) {
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Befehl muss mit '/' beginnen: "${line}"`, true);
+                    continue;
+                }
+
+                // Befehl verarbeiten
+                executeCommand(line, lineNum);
+            }
+        }
+
+        function executeCommand(line, lineNum) {
+            // Regex für /print("Inhalt") oder /print('Inhalt')
+            const printRegex = /^\/print\s*\(\s*(["'])(.*?)\1\s*\)$/;
+
+            const match = line.match(printRegex);
+
+            if (match) {
+                const textToPrint = match[2];
+                logToConsole(textToPrint);
+            } else {
+                logToConsole(`SyntaxFehler (Zeile ${lineNum}): Unbekannter oder fehlerhafter Befehl: "${line}"`, true);
+            }
         }
     </script>
 
