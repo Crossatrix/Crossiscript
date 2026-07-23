@@ -216,7 +216,14 @@
         <section class="editor-container">
             <div class="panel-header">Quellcode</div>
             <div class="editor-wrapper">
-                <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier..."></textarea>
+                <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
+Beispiel:
+/@x = 0
+/repeat (10): {
+    /display -pixel ([@x], 100) [#ffffff]
+    /wait (frame)
+    /@x += 10
+}"></textarea>
             </div>
         </section>
 
@@ -282,7 +289,7 @@
         // --- COMPILER ENGINE ---
         const variables = {};
 
-        function runCompiler() {
+        async function runCompiler() {
             const code = codeInput.value;
             if (!code.trim()) {
                 logToConsole("[Warnung] Kein Code zum Ausführen vorhanden.", true);
@@ -294,7 +301,7 @@
             for (let key in variables) delete variables[key];
 
             const lines = code.split('\n');
-            executeBlock(lines, 0, lines.length);
+            await executeBlock(lines, 0, lines.length);
         }
 
         function resolveVariablesInString(str, lineNum) {
@@ -314,7 +321,7 @@
             });
         }
 
-        function executeBlock(lines, startLine, endLine) {
+        async function executeBlock(lines, startLine, endLine) {
             let i = startLine;
 
             while (i < endLine) {
@@ -352,7 +359,7 @@
                     }
 
                     for (let r = 0; r < repeatCount; r++) {
-                        const success = executeBlock(lines, i + 1, blockEndIndex);
+                        const success = await executeBlock(lines, i + 1, blockEndIndex);
                         if (!success) return false;
                     }
 
@@ -388,14 +395,14 @@
                                 if (conditionResult === null) return false;
 
                                 if (conditionResult === true) {
-                                    const success = executeBlock(lines, currentIdx + 1, blockEndIndex);
+                                    const success = await executeBlock(lines, currentIdx + 1, blockEndIndex);
                                     if (!success) return false;
                                     executedBranch = true;
                                 }
                             }
                         } else if (elseMatch) {
                             if (!executedBranch) {
-                                const success = executeBlock(lines, currentIdx + 1, blockEndIndex);
+                                const success = await executeBlock(lines, currentIdx + 1, blockEndIndex);
                                 if (!success) return false;
                                 executedBranch = true;
                             }
@@ -423,7 +430,7 @@
                     return false;
                 }
 
-                const success = executeCommand(line, lineNum);
+                const success = await executeCommand(line, lineNum);
                 if (!success) return false;
 
                 i++;
@@ -493,8 +500,42 @@
             return token;
         }
 
-        function executeCommand(line, lineNum) {
-            // Variable Modifikation
+        async function executeCommand(line, lineNum) {
+            // 1. Wait Befehl
+            if (line.startsWith('/wait')) {
+                const waitMatch = line.match(/^\/wait\s*\((.*)\)$/);
+                if (!waitMatch) {
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiges /wait Syntax. Beispiel: /wait (1s) oder /wait (frame)`, true);
+                    return false;
+                }
+
+                let param = waitMatch[1].trim();
+                param = resolveVariablesInString(param, lineNum);
+
+                let ms = 0;
+                if (param.toLowerCase() === 'frame') {
+                    ms = 1000 / 30; // 30 FPS Frame (~33.33ms)
+                } else {
+                    const timeMatch = param.match(/^([0-9.]+)\s*(ms|s|m|h)?$/i);
+                    if (!timeMatch) {
+                        logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Ungültiges Zeitformat in /wait: "${param}"`, true);
+                        return false;
+                    }
+
+                    const val = parseFloat(timeMatch[1]);
+                    const unit = (timeMatch[2] || 's').toLowerCase();
+
+                    if (unit === 'ms') ms = val;
+                    else if (unit === 's') ms = val * 1000;
+                    else if (unit === 'm') ms = val * 60 * 1000;
+                    else if (unit === 'h') ms = val * 60 * 60 * 1000;
+                }
+
+                await new Promise(resolve => setTimeout(resolve, ms));
+                return true;
+            }
+
+            // 2. Variable Modifikation
             const opMatch = line.match(/^\/([$@?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=|\/=|=)\s*(.+)$/);
 
             if (opMatch) {
@@ -550,7 +591,7 @@
                 return true;
             }
 
-            // Print
+            // 3. Print
             if (line.startsWith('/print')) {
                 const printContentRegex = /^\/print\s*\((.*)\)$/;
                 const printMatch = line.match(printContentRegex);
@@ -567,7 +608,7 @@
                 return true;
             }
 
-            // Display commands
+            // 4. Display commands
             if (line.startsWith('/display')) {
                 const resolvedLine = resolveVariablesInString(line, lineNum);
 
