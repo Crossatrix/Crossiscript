@@ -187,7 +187,6 @@
             background-color: #fff;
         }
 
-        /* Responsive Layout für kleine Bildschirme / Mobilgeräte */
         @media (max-width: 900px) {
             main {
                 flex-direction: column;
@@ -214,20 +213,14 @@
     </header>
 
     <main>
-        <!-- Code Editor Pane -->
         <section class="editor-container">
             <div class="panel-header">Quellcode</div>
             <div class="editor-wrapper">
-                <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
-Beispiel:
-/@X = 1
-/display -pixel ([@X], [@X]) [#ffffff]"></textarea>
+                <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier..."></textarea>
             </div>
         </section>
 
-        <!-- Right Side: Console + Display Viewport -->
         <div class="right-pane">
-            <!-- Console Output Section -->
             <section class="console-container">
                 <div class="panel-header">Konsole / Ausgabe</div>
                 <div id="console-output">
@@ -235,7 +228,6 @@ Beispiel:
                 </div>
             </section>
 
-            <!-- Display Screen Section -->
             <section class="display-container">
                 <div class="panel-header" style="width: 100%;">Display (500 x 500)</div>
                 <div class="display-viewport">
@@ -247,7 +239,6 @@ Beispiel:
     </main>
 
     <script>
-        // Tab-Taste im Editor abfangen für saubere Einrückung
         const codeInput = document.getElementById('code-input');
         codeInput.addEventListener('keydown', function(e) {
             if (e.key === 'Tab') {
@@ -260,7 +251,6 @@ Beispiel:
             }
         });
 
-        // Konsolen-Hilfsfunktionen
         function logToConsole(message, isError = false) {
             const consoleOutput = document.getElementById('console-output');
             const entry = document.createElement('div');
@@ -275,7 +265,6 @@ Beispiel:
             resetDisplay();
         }
 
-        // Display-Hilfsfunktionen
         const canvas = document.getElementById('display-canvas');
         const ctx = canvas.getContext('2d');
         const iframe = document.getElementById('display-frame');
@@ -288,12 +277,9 @@ Beispiel:
             canvas.style.display = "block";
         }
 
-        // Canvas initialisieren
         resetDisplay();
 
         // --- COMPILER ENGINE ---
-
-        // Speicher für Variablen
         const variables = {};
 
         function runCompiler() {
@@ -305,19 +291,16 @@ Beispiel:
 
             clearConsole();
             
-            // Speicher bei jedem Durchlauf zurücksetzen
             for (let key in variables) delete variables[key];
 
             const lines = code.split('\n');
             executeBlock(lines, 0, lines.length);
         }
 
-        // Ersetzt [Var] durch Werte, erlaubt aber rohe Werte wie Hex-Codes [#ffffff]
         function resolveVariablesInString(str, lineNum) {
             return str.replace(/\[\s*(.*?)\s*\]/g, (match, content) => {
                 const trimmed = content.trim();
 
-                // Nur wenn der Inhalt in [...] mit $, @ oder ? beginnt, werten wir es als Variable aus
                 if (/^[$@?]/.test(trimmed)) {
                     if (variables.hasOwnProperty(trimmed)) {
                         return variables[trimmed];
@@ -327,12 +310,10 @@ Beispiel:
                     }
                 }
 
-                // Ansonsten ist es ein gewöhnlicher Wert (wie ein Hex-Code #ffffff)
                 return trimmed;
             });
         }
 
-        // Block-Ausführung zur Handhabung von Kontrollstrukturen wie /if, /repeat etc.
         function executeBlock(lines, startLine, endLine) {
             let i = startLine;
 
@@ -341,13 +322,11 @@ Beispiel:
                 const rawLine = lines[i];
                 const line = rawLine.trim();
 
-                // Leere Zeilen überspringen
-                if (line === '') {
+                if (line === '' || line === '}') {
                     i++;
                     continue;
                 }
 
-                // PRÜFUNG: Ist es ein /repeat-Befehl?
                 if (line.startsWith('/repeat')) {
                     const repeatHeaderRegex = /^\/repeat\s*\((.*?)\)\s*:\s*\{?$/;
                     const match = line.match(repeatHeaderRegex);
@@ -368,11 +347,10 @@ Beispiel:
 
                     let blockEndIndex = findClosingBracket(lines, i);
                     if (blockEndIndex === -1) {
-                        logToConsole(`SyntaxFehler (Zeile ${lineNum}): Fehlende schliessende Klammer '}' für /repeat Block.`, true);
+                        logToConsole(`SyntaxFehler (Zeile ${lineNum}): Fehlende schließende Klammer '}' für /repeat Block.`, true);
                         return false;
                     }
 
-                    // Loop ausführen
                     for (let r = 0; r < repeatCount; r++) {
                         const success = executeBlock(lines, i + 1, blockEndIndex);
                         if (!success) return false;
@@ -382,7 +360,6 @@ Beispiel:
                     continue;
                 }
 
-                // PRÜFUNG: Ist es ein /if-Befehl?
                 if (line.startsWith('/if')) {
                     let executedBranch = false;
                     let currentIdx = i;
@@ -399,7 +376,7 @@ Beispiel:
 
                         let blockEndIndex = findClosingBracket(lines, currentIdx);
                         if (blockEndIndex === -1) {
-                            logToConsole(`SyntaxFehler (Zeile ${currentIdx + 1}): Fehlende schliessende Klammer '}' für Block.`, true);
+                            logToConsole(`SyntaxFehler (Zeile ${currentIdx + 1}): Fehlende schließende Klammer '}' für Block.`, true);
                             return false;
                         }
 
@@ -441,19 +418,11 @@ Beispiel:
                     continue;
                 }
 
-                // Schließende Klammern isoliert überspringen
-                if (line === '}') {
-                    i++;
-                    continue;
-                }
-
-                // Syntax-Prüfung: Alle anderen Befehle MÜSSEN mit '/' beginnen
                 if (!line.startsWith('/')) {
                     logToConsole(`SyntaxFehler (Zeile ${lineNum}): Befehl muss mit '/' beginnen: "${line}"`, true);
                     return false;
                 }
 
-                // Einzelnen Befehl verarbeiten
                 const success = executeCommand(line, lineNum);
                 if (!success) return false;
 
@@ -521,12 +490,11 @@ Beispiel:
             if (token === 'true') return true;
             if (token === 'false') return false;
 
-            // Rohe Strings/Farbcodes direkt zurückgeben
             return token;
         }
 
         function executeCommand(line, lineNum) {
-            // 1. Zuweisung & Modifikation von Variablen: =, +=, -=, *=, /=
+            // Variable Modifikation
             const opMatch = line.match(/^\/([$@?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=|\/=|=)\s*(.+)$/);
 
             if (opMatch) {
@@ -539,7 +507,7 @@ Beispiel:
                 rawValue = resolveVariablesInString(rawValue, lineNum);
 
                 if (operator !== '=' && !variables.hasOwnProperty(fullVarKey)) {
-                    logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable ${fullVarKey} existiert nicht und kann nicht verändert werden.`, true);
+                    logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable ${fullVarKey} existiert nicht.`, true);
                     return false;
                 }
 
@@ -561,8 +529,90 @@ Beispiel:
                         variables[fullVarKey] *= operandValue;
                     } else if (operator === '/=') {
                         if (operandValue === 0) {
-                            logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Division durch Null ist nicht erlaubt.`, true);
+                            logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Division durch Null.`, true);
                             return false;
                         }
                         variables[fullVarKey] /= operandValue;
-       
+                    }
+                } 
+                else if (typeSymbol === '$') {
+                    let stringVal = rawValue;
+                    const stringMatch = rawValue.match(/^["'](.*)["']$/);
+                    if (stringMatch) stringVal = stringMatch[1];
+
+                    if (operator === '=') variables[fullVarKey] = stringVal;
+                    else if (operator === '+=') variables[fullVarKey] += stringVal;
+                } 
+                else if (typeSymbol === '?') {
+                    if (rawValue === 'true' || rawValue === '1') variables[fullVarKey] = true;
+                    else if (rawValue === 'false' || rawValue === '0') variables[fullVarKey] = false;
+                }
+                return true;
+            }
+
+            // Print
+            if (line.startsWith('/print')) {
+                const printContentRegex = /^\/print\s*\((.*)\)$/;
+                const printMatch = line.match(printContentRegex);
+
+                if (!printMatch) {
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiges /print Syntax.`, true);
+                    return false;
+                }
+
+                let content = printMatch[1].trim();
+                content = resolveVariablesInString(content, lineNum);
+
+                logToConsole(content);
+                return true;
+            }
+
+            // Display commands
+            if (line.startsWith('/display')) {
+                const resolvedLine = resolveVariablesInString(line, lineNum);
+
+                // Option A: /display -web ("URL")
+                const webMatch = resolvedLine.match(/^\/display\s+-web\s*\(\s*(["'])(.*?)\1\s*\)$/);
+                if (webMatch) {
+                    const url = webMatch[2];
+                    canvas.style.display = "none";
+                    iframe.style.display = "block";
+                    iframe.src = url;
+                    return true;
+                }
+
+                // Option B: /display -pixel (x,y) color
+                const pixelMatch = resolvedLine.match(/^\/display\s+-pixel\s*\(\s*(.*?)\s*,\s*(.*?)\s*\)\s*(.+)$/);
+                if (pixelMatch) {
+                    const xVal = parseOperand(pixelMatch[1].trim(), lineNum);
+                    const yVal = parseOperand(pixelMatch[2].trim(), lineNum);
+                    let colorRaw = pixelMatch[3].trim();
+
+                    if (xVal === null || yVal === null) return false;
+
+                    let hexColor = colorRaw;
+                    if (colorRaw.startsWith('$') || colorRaw.startsWith('@')) {
+                        hexColor = parseOperand(colorRaw, lineNum);
+                    } else if (colorRaw.startsWith('"') || colorRaw.startsWith("'")) {
+                        const matchStr = colorRaw.match(/^["'](.*)["']$/);
+                        if (matchStr) hexColor = matchStr[1];
+                    }
+
+                    iframe.style.display = "none";
+                    canvas.style.display = "block";
+
+                    ctx.fillStyle = hexColor;
+                    ctx.fillRect(Math.floor(xVal), Math.floor(yVal), 1, 1);
+                    return true;
+                }
+
+                logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültige /display Syntax.`, true);
+                return false;
+            }
+
+            logToConsole(`SyntaxFehler (Zeile ${lineNum}): Unbekannter Befehl: "${line}"`, true);
+            return false;
+        }
+    </script>
+</body>
+</html>
