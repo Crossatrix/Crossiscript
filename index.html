@@ -31,6 +31,7 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            position: relative;
         }
 
         /* Header / Toolbar */
@@ -187,6 +188,52 @@
             background-color: #fff;
         }
 
+        /* Input Overlay Modal */
+        #input-modal {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-box {
+            background-color: var(--bg-sidebar);
+            border: 1px solid var(--border);
+            padding: 20px;
+            border-radius: 6px;
+            width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        .modal-prompt {
+            color: var(--text-white);
+            font-weight: bold;
+            font-size: 0.95rem;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 8px;
+            background-color: var(--bg-editor);
+            border: 1px solid var(--border);
+            color: var(--text-white);
+            border-radius: 4px;
+            outline: none;
+        }
+
+        .modal-input:focus {
+            border-color: var(--accent);
+        }
+
         @media (max-width: 900px) {
             main {
                 flex-direction: column;
@@ -218,11 +265,12 @@
             <div class="editor-wrapper">
                 <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
 Beispiel:
-/func [drawPixel] <@x, @y> {
-    /display -pixel ([@x], [@y]) [#ffffff]
-}
+/input (&quot;Wie heisst du?&quot;) [$name]
+/print (&quot;Hallo &quot; + [$name])
 
-drawPixel (100, 100)"></textarea>
+/@alter = 18
+/cast [@alter] $
+/print (&quot;Dein Alter als String: &quot; + [$alter])"></textarea>
             </div>
         </section>
 
@@ -243,6 +291,15 @@ drawPixel (100, 100)"></textarea>
             </section>
         </div>
     </main>
+
+    <!-- Modal für /input -->
+    <div id="input-modal">
+        <div class="modal-box">
+            <div id="modal-prompt-text" class="modal-prompt">Eingabe:</div>
+            <input type="text" id="modal-field" class="modal-input" autocomplete="off" />
+            <button id="modal-submit-btn">Bestätigen</button>
+        </div>
+    </div>
 
     <script>
         const codeInput = document.getElementById('code-input');
@@ -285,19 +342,48 @@ drawPixel (100, 100)"></textarea>
 
         resetDisplay();
 
+        // UI Prompt Handler für /input
+        function promptUser(message) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('input-modal');
+                const promptText = document.getElementById('modal-prompt-text');
+                const field = document.getElementById('modal-field');
+                const btn = document.getElementById('modal-submit-btn');
+
+                promptText.textContent = message;
+                field.value = '';
+                modal.style.display = 'flex';
+                field.focus();
+
+                function submit() {
+                    modal.style.display = 'none';
+                    btn.removeEventListener('click', submit);
+                    field.removeEventListener('keydown', keyHandler);
+                    resolve(field.value);
+                }
+
+                function keyHandler(e) {
+                    if (e.key === 'Enter') {
+                        submit();
+                    }
+                }
+
+                btn.addEventListener('click', submit);
+                field.addEventListener('keydown', keyHandler);
+            });
+        }
+
         // --- COMPILER ENGINE ---
         const globalVariables = {};
         const callStack = []; // Stack für lokale Variablenbereiche
         const functions = {}; // Speicher für definierte Funktionen
 
         function getVariable(key) {
-            // Erst im aktuellen lokalen Frame suchen (von oben nach unten)
             for (let i = callStack.length - 1; i >= 0; i--) {
                 if (callStack[i].hasOwnProperty(key)) {
                     return callStack[i][key];
                 }
             }
-            // Ansonsten im globalen Speicher
             if (globalVariables.hasOwnProperty(key)) {
                 return globalVariables[key];
             }
@@ -305,15 +391,23 @@ drawPixel (100, 100)"></textarea>
         }
 
         function setVariable(key, value) {
-            // Wenn die Variable in einem lokalen Stack-Frame existiert, dort aktualisieren
             for (let i = callStack.length - 1; i >= 0; i--) {
                 if (callStack[i].hasOwnProperty(key)) {
                     callStack[i][key] = value;
                     return;
                 }
             }
-            // Ansonsten global zuweisen
             globalVariables[key] = value;
+        }
+
+        function deleteVariable(key) {
+            for (let i = callStack.length - 1; i >= 0; i--) {
+                if (callStack[i].hasOwnProperty(key)) {
+                    delete callStack[i][key];
+                    return;
+                }
+            }
+            delete globalVariables[key];
         }
 
         function hasVariable(key) {
@@ -353,6 +447,22 @@ drawPixel (100, 100)"></textarea>
 
                 return trimmed;
             });
+        }
+
+        // Hilfsfunktion zur mathematischen Auswertung von Klammer-Ausdrücken
+        function evaluateMathExpression(expr, lineNum) {
+            let resolved = resolveVariablesInString(expr, lineNum);
+
+            // Sicheres Berechnen von mathematischen Ausdrücken (+, -, *, /, Klammern)
+            if (!/^[0-9. +\-*/()]+$/.test(resolved)) {
+                return null;
+            }
+
+            try {
+                return Function(`'use strict'; return (${resolved})`)();
+            } catch (e) {
+                return null;
+            }
         }
 
         async function executeBlock(lines, startLine, endLine) {
@@ -409,8 +519,8 @@ drawPixel (100, 100)"></textarea>
                     }
 
                     let rawCountParam = match[1].trim();
-                    rawCountParam = resolveVariablesInString(rawCountParam, lineNum);
-                    const repeatCount = Number(rawCountParam);
+                    let evaluatedCount = evaluateMathExpression(rawCountParam, lineNum);
+                    const repeatCount = evaluatedCount !== null ? Number(evaluatedCount) : Number(resolveVariablesInString(rawCountParam, lineNum));
 
                     if (isNaN(repeatCount) || repeatCount < 0) {
                         logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Ungültige Wiederholungsanzahl in /repeat: "${rawCountParam}"`, true);
@@ -520,13 +630,15 @@ drawPixel (100, 100)"></textarea>
         async function invokeFunction(funcName, rawArgsStr, lines, lineNum) {
             const func = functions[funcName];
             
-            // Argumente trennen & auswerten
             let parsedArgs = [];
             if (rawArgsStr.length > 0) {
                 const rawArgsList = rawArgsStr.split(',').map(a => a.trim());
                 for (let arg of rawArgsList) {
-                    const resolved = resolveVariablesInString(arg, lineNum);
-                    const val = parseOperand(resolved, lineNum);
+                    let val = evaluateMathExpression(arg, lineNum);
+                    if (val === null) {
+                        const resolved = resolveVariablesInString(arg, lineNum);
+                        val = parseOperand(resolved, lineNum);
+                    }
                     parsedArgs.push(val);
                 }
             }
@@ -536,7 +648,6 @@ drawPixel (100, 100)"></textarea>
                 return false;
             }
 
-            // Neuer lokaler Frame für die Funktion
             const localScope = {};
             for (let p = 0; p < func.params.length; p++) {
                 localScope[func.params[p]] = parsedArgs[p];
@@ -569,8 +680,11 @@ drawPixel (100, 100)"></textarea>
             if (opMatch) {
                 const operator = opMatch[1];
                 const parts = cond.split(operator);
-                const leftVal = parseOperand(parts[0].trim(), lineNum);
-                const rightVal = parseOperand(parts[1].trim(), lineNum);
+                let leftVal = evaluateMathExpression(parts[0].trim(), lineNum);
+                if (leftVal === null) leftVal = parseOperand(parts[0].trim(), lineNum);
+
+                let rightVal = evaluateMathExpression(parts[1].trim(), lineNum);
+                if (rightVal === null) rightVal = parseOperand(parts[1].trim(), lineNum);
 
                 if (leftVal === null || rightVal === null) return null;
 
@@ -583,7 +697,8 @@ drawPixel (100, 100)"></textarea>
                     case '<=': return leftVal <= rightVal;
                 }
             } else {
-                const val = parseOperand(cond, lineNum);
+                let val = evaluateMathExpression(cond, lineNum);
+                if (val === null) val = parseOperand(cond, lineNum);
                 if (val === null) return null;
                 return Boolean(val);
             }
@@ -617,12 +732,17 @@ drawPixel (100, 100)"></textarea>
             if (line.startsWith('/wait')) {
                 const waitMatch = line.match(/^\/wait\s*\((.*)\)$/);
                 if (!waitMatch) {
-                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiges /wait Syntax. Beispiel: /wait (1s) oder /wait (frame)`, true);
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültige /wait Syntax. Beispiel: /wait (1s) oder /wait (frame)`, true);
                     return false;
                 }
 
                 let param = waitMatch[1].trim();
-                param = resolveVariablesInString(param, lineNum);
+                let mathVal = evaluateMathExpression(param, lineNum);
+                if (mathVal !== null) {
+                    param = String(mathVal) + 's';
+                } else {
+                    param = resolveVariablesInString(param, lineNum);
+                }
 
                 let ms = 0;
                 if (param.toLowerCase() === 'frame') {
@@ -647,7 +767,61 @@ drawPixel (100, 100)"></textarea>
                 return true;
             }
 
-            // 2. Variable Modifikation
+            // 2. Input Befehl: /input ("Prompt") [$variable]
+            if (line.startsWith('/input')) {
+                const inputMatch = line.match(/^\/input\s*\(\s*(["'])(.*?)\1\s*\)\s*\[\s*([$@?][a-zA-Z0-9_]+)\s*\]$/);
+                if (!inputMatch) {
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültige /input Syntax. Beispiel: /input ("Wie heisst du?") [$name]`, true);
+                    return false;
+                }
+
+                const promptMsg = resolveVariablesInString(inputMatch[2], lineNum);
+                const varTarget = inputMatch[3].trim();
+
+                logToConsole(`[Input] ${promptMsg}`);
+                const userInput = await promptUser(promptMsg);
+
+                // Setzt die Eingabe als String-Wert (oder konvertiert passend)
+                setVariable(varTarget, userInput);
+                return true;
+            }
+
+            // 3. Cast Befehl: /cast [$/@/?variablenname] @/$/?
+            if (line.startsWith('/cast')) {
+                const castMatch = line.match(/^\/cast\s+\[\s*([$@?][a-zA-Z0-9_]+)\s*\]\s*([$@?])$/);
+                if (!castMatch) {
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültige /cast Syntax. Beispiel: /cast [$name] @ oder /cast [@zahl] $`, true);
+                    return false;
+                }
+
+                const srcVar = castMatch[1];
+                const targetType = castMatch[2];
+
+                if (!hasVariable(srcVar)) {
+                    logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable ${srcVar} ist nicht definiert.`, true);
+                    return false;
+                }
+
+                const currentVal = getVariable(srcVar);
+                const rawName = srcVar.substring(1);
+                const newVarKey = targetType + rawName;
+
+                let convertedValue;
+                if (targetType === '@') {
+                    convertedValue = Number(currentVal);
+                    if (isNaN(convertedValue)) convertedValue = 0;
+                } else if (targetType === '$') {
+                    convertedValue = String(currentVal);
+                } else if (targetType === '?') {
+                    convertedValue = Boolean(currentVal) && currentVal !== "false" && currentVal !== "0";
+                }
+
+                deleteVariable(srcVar);
+                setVariable(newVarKey, convertedValue);
+                return true;
+            }
+
+            // 4. Variable Modifikation (inkl. Mathe in Klammern)
             const opMatch = line.match(/^\/([$@?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=|\/=|=)\s*(.+)$/);
 
             if (opMatch) {
@@ -657,30 +831,27 @@ drawPixel (100, 100)"></textarea>
                 let rawValue = opMatch[4].trim();
                 const fullVarKey = typeSymbol + varName;
 
-                rawValue = resolveVariablesInString(rawValue, lineNum);
-
                 if (operator !== '=' && !hasVariable(fullVarKey)) {
                     logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable ${fullVarKey} existiert nicht.`, true);
                     return false;
                 }
 
+                // Prüfen, ob Wert in Klammern mit Rechenoperation ist
+                let mathVal = evaluateMathExpression(rawValue, lineNum);
+
                 if (typeSymbol === '@') {
-                    let operandValue = parseOperand(rawValue, lineNum);
+                    let operandValue = mathVal !== null ? mathVal : parseOperand(resolveVariablesInString(rawValue, lineNum), lineNum);
                     if (operandValue === null || isNaN(Number(operandValue))) {
                         logToConsole(`TypFehler (Zeile ${lineNum}): Ungültige Zahl für Operation mit @${varName}: "${rawValue}"`, true);
                         return false;
                     }
                     operandValue = Number(operandValue);
 
-                    if (operator === '=') {
-                        setVariable(fullVarKey, operandValue);
-                    } else if (operator === '+=') {
-                        setVariable(fullVarKey, getVariable(fullVarKey) + operandValue);
-                    } else if (operator === '-=') {
-                        setVariable(fullVarKey, getVariable(fullVarKey) - operandValue);
-                    } else if (operator === '*=') {
-                        setVariable(fullVarKey, getVariable(fullVarKey) * operandValue);
-                    } else if (operator === '/=') {
+                    if (operator === '=') setVariable(fullVarKey, operandValue);
+                    else if (operator === '+=') setVariable(fullVarKey, getVariable(fullVarKey) + operandValue);
+                    else if (operator === '-=') setVariable(fullVarKey, getVariable(fullVarKey) - operandValue);
+                    else if (operator === '*=') setVariable(fullVarKey, getVariable(fullVarKey) * operandValue);
+                    else if (operator === '/=') {
                         if (operandValue === 0) {
                             logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Division durch Null.`, true);
                             return false;
@@ -689,8 +860,8 @@ drawPixel (100, 100)"></textarea>
                     }
                 } 
                 else if (typeSymbol === '$') {
-                    let stringVal = rawValue;
-                    const stringMatch = rawValue.match(/^["'](.*)["']$/);
+                    let stringVal = mathVal !== null ? String(mathVal) : resolveVariablesInString(rawValue, lineNum);
+                    const stringMatch = stringVal.match(/^["'](.*)["']$/);
                     if (stringMatch) stringVal = stringMatch[1];
 
                     if (operator === '=') setVariable(fullVarKey, stringVal);
@@ -703,31 +874,33 @@ drawPixel (100, 100)"></textarea>
                 return true;
             }
 
-            // 3. Print
+            // 5. Print (inkl. String/Mathe Auflösung)
             if (line.startsWith('/print')) {
                 const printContentRegex = /^\/print\s*\((.*)\)$/;
                 const printMatch = line.match(printContentRegex);
 
                 if (!printMatch) {
-                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiges /print Syntax.`, true);
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültige /print Syntax.`, true);
                     return false;
                 }
 
-                let content = printMatch[1].trim();
-                content = resolveVariablesInString(content, lineNum);
+                let inner = printMatch[1].trim();
+                let mathVal = evaluateMathExpression(inner, lineNum);
+                let content = mathVal !== null ? String(mathVal) : resolveVariablesInString(inner, lineNum);
+
+                const stringMatch = content.match(/^["'](.*)["']$/);
+                if (stringMatch) content = stringMatch[1];
 
                 logToConsole(content);
                 return true;
             }
 
-            // 4. Display commands
+            // 6. Display commands
             if (line.startsWith('/display')) {
-                const resolvedLine = resolveVariablesInString(line, lineNum);
-
                 // Option A: /display -web ("URL")
-                const webMatch = resolvedLine.match(/^\/display\s+-web\s*\(\s*(["'])(.*?)\1\s*\)$/);
+                const webMatch = line.match(/^\/display\s+-web\s*\(\s*(["'])(.*?)\1\s*\)$/);
                 if (webMatch) {
-                    const url = webMatch[2];
+                    const url = resolveVariablesInString(webMatch[2], lineNum);
                     canvas.style.display = "none";
                     iframe.style.display = "block";
                     iframe.src = url;
@@ -735,11 +908,18 @@ drawPixel (100, 100)"></textarea>
                 }
 
                 // Option B: /display -pixel (x,y) color
-                const pixelMatch = resolvedLine.match(/^\/display\s+-pixel\s*\(\s*(.*?)\s*,\s*(.*?)\s*\)\s*(.+)$/);
+                const pixelMatch = line.match(/^\/display\s+-pixel\s*\(\s*(.*?)\s*,\s*(.*?)\s*\)\s*(.+)$/);
                 if (pixelMatch) {
-                    const xVal = parseOperand(pixelMatch[1].trim(), lineNum);
-                    const yVal = parseOperand(pixelMatch[2].trim(), lineNum);
-                    let colorRaw = pixelMatch[3].trim();
+                    let rawX = pixelMatch[1].trim();
+                    let rawY = pixelMatch[2].trim();
+
+                    let xVal = evaluateMathExpression(rawX, lineNum);
+                    if (xVal === null) xVal = parseOperand(resolveVariablesInString(rawX, lineNum), lineNum);
+
+                    let yVal = evaluateMathExpression(rawY, lineNum);
+                    if (yVal === null) yVal = parseOperand(resolveVariablesInString(rawY, lineNum), lineNum);
+
+                    let colorRaw = resolveVariablesInString(pixelMatch[3].trim(), lineNum);
 
                     if (xVal === null || yVal === null) return false;
 
