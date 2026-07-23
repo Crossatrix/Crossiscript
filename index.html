@@ -31,7 +31,6 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            position: relative;
         }
 
         /* Header / Toolbar */
@@ -154,6 +153,21 @@
             color: #f14c4c;
         }
 
+        .console-input-line {
+            display: flex;
+            align-items: center;
+            color: #ce9178;
+            margin-top: 5px;
+        }
+
+        .console-input-field {
+            outline: none;
+            color: #fff;
+            caret-color: #0098ff;
+            min-width: 10px;
+            display: inline-block;
+        }
+
         /* Display Container Section */
         .display-container {
             height: 535px;
@@ -186,52 +200,6 @@
             left: 0;
             display: none;
             background-color: #fff;
-        }
-
-        /* Input Overlay Modal */
-        #input-modal {
-            display: none;
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: rgba(0, 0, 0, 0.7);
-            z-index: 9999;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .modal-box {
-            background-color: var(--bg-sidebar);
-            border: 1px solid var(--border);
-            padding: 20px;
-            border-radius: 6px;
-            width: 350px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-        }
-
-        .modal-prompt {
-            color: var(--text-white);
-            font-weight: bold;
-            font-size: 0.95rem;
-        }
-
-        .modal-input {
-            width: 100%;
-            padding: 8px;
-            background-color: var(--bg-editor);
-            border: 1px solid var(--border);
-            color: var(--text-white);
-            border-radius: 4px;
-            outline: none;
-        }
-
-        .modal-input:focus {
-            border-color: var(--accent);
         }
 
         @media (max-width: 900px) {
@@ -268,9 +236,9 @@ Beispiel:
 /input (&quot;Wie heisst du?&quot;) [$name]
 /print (&quot;Hallo &quot; + [$name])
 
-/@alter = 18
+/@alter = (10 + 8)
 /cast [@alter] $
-/print (&quot;Dein Alter als String: &quot; + [$alter])"></textarea>
+/print (&quot;Dein Alter ist: &quot; + [$alter])"></textarea>
             </div>
         </section>
 
@@ -291,15 +259,6 @@ Beispiel:
             </section>
         </div>
     </main>
-
-    <!-- Modal für /input -->
-    <div id="input-modal">
-        <div class="modal-box">
-            <div id="modal-prompt-text" class="modal-prompt">Eingabe:</div>
-            <input type="text" id="modal-field" class="modal-input" autocomplete="off" />
-            <button id="modal-submit-btn">Bestätigen</button>
-        </div>
-    </div>
 
     <script>
         const codeInput = document.getElementById('code-input');
@@ -342,41 +301,45 @@ Beispiel:
 
         resetDisplay();
 
-        // UI Prompt Handler für /input
-        function promptUser(message) {
+        // Konsolen-Eingabe Handler für /input
+        function promptUserConsole(promptText) {
             return new Promise((resolve) => {
-                const modal = document.getElementById('input-modal');
-                const promptText = document.getElementById('modal-prompt-text');
-                const field = document.getElementById('modal-field');
-                const btn = document.getElementById('modal-submit-btn');
+                const consoleOutput = document.getElementById('console-output');
+                
+                // Prompt in der Konsole ausgeben
+                logToConsole(promptText);
 
-                promptText.textContent = message;
-                field.value = '';
-                modal.style.display = 'flex';
-                field.focus();
+                // Eingabe-Zeile erstellen
+                const inputLine = document.createElement('div');
+                inputLine.className = 'console-input-line';
+                inputLine.innerHTML = `>&nbsp;<span class="console-input-field" contenteditable="true"></span>`;
+                consoleOutput.appendChild(inputLine);
 
-                function submit() {
-                    modal.style.display = 'none';
-                    btn.removeEventListener('click', submit);
-                    field.removeEventListener('keydown', keyHandler);
-                    resolve(field.value);
-                }
+                const inputSpan = inputLine.querySelector('.console-input-field');
+                consoleOutput.scrollTop = consoleOutput.scrollHeight;
+                
+                // Fokus auf das Eingabefeld setzen
+                setTimeout(() => inputSpan.focus(), 10);
 
-                function keyHandler(e) {
+                inputSpan.addEventListener('keydown', function keyHandler(e) {
                     if (e.key === 'Enter') {
-                        submit();
-                    }
-                }
+                        e.preventDefault();
+                        const result = inputSpan.textContent.trim();
+                        
+                        // Eingabe fixieren
+                        inputSpan.contentEditable = "false";
+                        inputSpan.removeEventListener('keydown', keyHandler);
 
-                btn.addEventListener('click', submit);
-                field.addEventListener('keydown', keyHandler);
+                        resolve(result);
+                    }
+                });
             });
         }
 
         // --- COMPILER ENGINE ---
         const globalVariables = {};
-        const callStack = []; // Stack für lokale Variablenbereiche
-        const functions = {}; // Speicher für definierte Funktionen
+        const callStack = [];
+        const functions = {};
 
         function getVariable(key) {
             for (let i = callStack.length - 1; i >= 0; i--) {
@@ -449,11 +412,9 @@ Beispiel:
             });
         }
 
-        // Hilfsfunktion zur mathematischen Auswertung von Klammer-Ausdrücken
         function evaluateMathExpression(expr, lineNum) {
             let resolved = resolveVariablesInString(expr, lineNum);
 
-            // Sicheres Berechnen von mathematischen Ausdrücken (+, -, *, /, Klammern)
             if (!/^[0-9. +\-*/()]+$/.test(resolved)) {
                 return null;
             }
@@ -746,7 +707,7 @@ Beispiel:
 
                 let ms = 0;
                 if (param.toLowerCase() === 'frame') {
-                    ms = 1000 / 30; // 30 FPS Frame (~33.33ms)
+                    ms = 1000 / 30;
                 } else {
                     const timeMatch = param.match(/^([0-9.]+)\s*(ms|s|m|h)?$/i);
                     if (!timeMatch) {
@@ -767,7 +728,7 @@ Beispiel:
                 return true;
             }
 
-            // 2. Input Befehl: /input ("Prompt") [$variable]
+            // 2. Input Befehl direkt in der Konsole: /input ("Prompt") [$variable]
             if (line.startsWith('/input')) {
                 const inputMatch = line.match(/^\/input\s*\(\s*(["'])(.*?)\1\s*\)\s*\[\s*([$@?][a-zA-Z0-9_]+)\s*\]$/);
                 if (!inputMatch) {
@@ -778,10 +739,7 @@ Beispiel:
                 const promptMsg = resolveVariablesInString(inputMatch[2], lineNum);
                 const varTarget = inputMatch[3].trim();
 
-                logToConsole(`[Input] ${promptMsg}`);
-                const userInput = await promptUser(promptMsg);
-
-                // Setzt die Eingabe als String-Wert (oder konvertiert passend)
+                const userInput = await promptUserConsole(promptMsg);
                 setVariable(varTarget, userInput);
                 return true;
             }
@@ -821,7 +779,7 @@ Beispiel:
                 return true;
             }
 
-            // 4. Variable Modifikation (inkl. Mathe in Klammern)
+            // 4. Variable Modifikation
             const opMatch = line.match(/^\/([$@?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=|\/=|=)\s*(.+)$/);
 
             if (opMatch) {
@@ -836,7 +794,6 @@ Beispiel:
                     return false;
                 }
 
-                // Prüfen, ob Wert in Klammern mit Rechenoperation ist
                 let mathVal = evaluateMathExpression(rawValue, lineNum);
 
                 if (typeSymbol === '@') {
@@ -874,7 +831,7 @@ Beispiel:
                 return true;
             }
 
-            // 5. Print (inkl. String/Mathe Auflösung)
+            // 5. Print
             if (line.startsWith('/print')) {
                 const printContentRegex = /^\/print\s*\((.*)\)$/;
                 const printMatch = line.match(printContentRegex);
@@ -897,7 +854,6 @@ Beispiel:
 
             // 6. Display commands
             if (line.startsWith('/display')) {
-                // Option A: /display -web ("URL")
                 const webMatch = line.match(/^\/display\s+-web\s*\(\s*(["'])(.*?)\1\s*\)$/);
                 if (webMatch) {
                     const url = resolveVariablesInString(webMatch[2], lineNum);
@@ -907,7 +863,6 @@ Beispiel:
                     return true;
                 }
 
-                // Option B: /display -pixel (x,y) color
                 const pixelMatch = line.match(/^\/display\s+-pixel\s*\(\s*(.*?)\s*,\s*(.*?)\s*\)\s*(.+)$/);
                 if (pixelMatch) {
                     let rawX = pixelMatch[1].trim();
