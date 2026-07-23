@@ -178,15 +178,14 @@
             <div class="editor-wrapper">
                 <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
 Beispiel:
-/#Zahl = 5
-/?Aktiv = true
+/#Zahl = 10
 
-/if (?Aktiv): {
-    /print(&quot;System ist aktiv!&quot;)
-}
-
-/if (#Zahl > 3): {
-    /print(&quot;Zahl ist grösser als 3&quot;)
+/if (#Zahl = 5): {
+    /print(&quot;Zahl ist 5&quot;)
+} ifelse (#Zahl = 10): {
+    /print(&quot;Zahl ist 10&quot;)
+} else: {
+    /print(&quot;Zahl ist weder 5 noch 10&quot;)
 }"></textarea>
             </div>
         </section>
@@ -249,7 +248,7 @@ Beispiel:
             executeBlock(lines, 0, lines.length);
         }
 
-        // Block-Ausführung zur Handhabung von Kontrollstrukturen wie /if
+        // Block-Ausführung zur Handhabung von Kontrollstrukturen wie /if, ifelse, else
         function executeBlock(lines, startLine, endLine) {
             let i = startLine;
 
@@ -259,62 +258,83 @@ Beispiel:
                 const line = rawLine.trim();
 
                 // Leere Zeilen überspringen
-                if (line === '' || line === '}') {
+                if (line === '') {
                     i++;
                     continue;
                 }
 
-                // Syntax-Prüfung: Befehle MÜSSEN mit '/' beginnen
-                if (!line.startsWith('/')) {
-                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Befehl muss mit '/' beginnen: "${line}"`, true);
-                    return false;
-                }
-
                 // PRÜFUNG: Ist es ein /if-Befehl?
                 if (line.startsWith('/if')) {
-                    const ifHeaderRegex = /^\/if\s*\((.*?)\)\s*:\s*\{?$/;
-                    const match = line.match(ifHeaderRegex);
+                    let executedBranch = false;
+                    let currentIdx = i;
 
-                    if (!match) {
-                        logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiges /if Format: "${line}"`, true);
-                        return false;
-                    }
+                    while (currentIdx < endLine) {
+                        const curLine = lines[currentIdx].trim();
 
-                    const conditionStr = match[1].trim();
+                        // Match /if (...): { oder ifelse (...): { oder else: {
+                        const ifMatch = curLine.match(/^(\/if|ifelse)\s*\((.*?)\)\s*:\s*\{?$/);
+                        const elseMatch = curLine.match(/^else\s*:\s*\{?$/);
 
-                    // Block-Ende (schließende Klammer '}') finden
-                    let blockEndIndex = -1;
-                    let openBrackets = 0;
+                        if (!ifMatch && !elseMatch) {
+                            break; // Kein weitere Verzweigung im selben Chain
+                        }
 
-                    for (let j = i; j < lines.length; j++) {
-                        if (lines[j].includes('{')) openBrackets++;
-                        if (lines[j].includes('}')) {
-                            openBrackets--;
-                            if (openBrackets === 0) {
-                                blockEndIndex = j;
-                                break;
+                        // Block-Ende (schließende Klammer '}') finden
+                        let blockEndIndex = findClosingBracket(lines, currentIdx);
+                        if (blockEndIndex === -1) {
+                            logToConsole(`SyntaxFehler (Zeile ${currentIdx + 1}): Fehlende schliessende Klammer '}' für Block.`, true);
+                            return false;
+                        }
+
+                        if (ifMatch) {
+                            const conditionStr = ifMatch[2].trim();
+
+                            if (!executedBranch) {
+                                const conditionResult = evaluateCondition(conditionStr, currentIdx + 1);
+                                if (conditionResult === null) return false;
+
+                                if (conditionResult === true) {
+                                    const success = executeBlock(lines, currentIdx + 1, blockEndIndex);
+                                    if (!success) return false;
+                                    executedBranch = true; // Zweig ausgeführt!
+                                }
                             }
+                        } else if (elseMatch) {
+                            if (!executedBranch) {
+                                const success = executeBlock(lines, currentIdx + 1, blockEndIndex);
+                                if (!success) return false;
+                                executedBranch = true;
+                            }
+                        }
+
+                        // Springe hinter den aktuellen Block und schaue, ob ein ifelse oder else folgt
+                        currentIdx = blockEndIndex + 1;
+                        while (currentIdx < endLine && lines[currentIdx].trim() === '') {
+                            currentIdx++;
+                        }
+
+                        if (currentIdx >= endLine) break;
+
+                        const nextLine = lines[currentIdx].trim();
+                        if (!nextLine.startsWith('ifelse') && !nextLine.startsWith('else')) {
+                            break;
                         }
                     }
 
-                    if (blockEndIndex === -1) {
-                        logToConsole(`SyntaxFehler (Zeile ${lineNum}): Fehlende schliessende Klammer '}' für /if Block.`, true);
-                        return false;
-                    }
-
-                    // Bedingung auswerten
-                    const conditionResult = evaluateCondition(conditionStr, lineNum);
-                    if (conditionResult === null) return false; // Fehler bei der Bedingung
-
-                    if (conditionResult === true) {
-                        // Befehle innerhalb des /if-Blocks ausführen
-                        const success = executeBlock(lines, i + 1, blockEndIndex);
-                        if (!success) return false;
-                    }
-
-                    // Springe hinter den /if-Block
-                    i = blockEndIndex + 1;
+                    i = currentIdx;
                     continue;
+                }
+
+                // Schließende Klammern isoliert überspringen
+                if (line === '}') {
+                    i++;
+                    continue;
+                }
+
+                // Syntax-Prüfung: Alle anderen Befehle MÜSSEN mit '/' beginnen
+                if (!line.startsWith('/')) {
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Befehl muss mit '/' beginnen: "${line}"`, true);
+                    return false;
                 }
 
                 // Einzelnen Befehl verarbeiten
@@ -324,6 +344,21 @@ Beispiel:
                 i++;
             }
             return true;
+        }
+
+        // Hilfsfunktion zum Finden der passenden schließenden Klammer '}'
+        function findClosingBracket(lines, startIdx) {
+            let openBrackets = 0;
+            for (let j = startIdx; j < lines.length; j++) {
+                if (lines[j].includes('{')) openBrackets++;
+                if (lines[j].includes('}')) {
+                    openBrackets--;
+                    if (openBrackets === 0) {
+                        return j;
+                    }
+                }
+            }
+            return -1;
         }
 
         // Hilfsfunktion zum Evaluieren von Bedingungen
