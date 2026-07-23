@@ -220,11 +220,8 @@
             <div class="editor-wrapper">
                 <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
 Beispiel:
-/#X = 0
-/repeat (10): {
-    /display -pixel ([#X], [#X]) #ff0000
-    /#X += 10
-}"></textarea>
+/#X = 100
+/display -pixel ([#X], 100) [#ffffff]"></textarea>
             </div>
         </section>
 
@@ -315,15 +312,23 @@ Beispiel:
             executeBlock(lines, 0, lines.length);
         }
 
-        // Ersetzt alle [varName] Vorkommen in einem String durch ihren aktuellen Wert
+        // Ersetzt [Var] durch Werte, erlaubt aber rohe Werte wie Hex-Codes [#ffffff]
         function resolveVariablesInString(str, lineNum) {
-            return str.replace(/\[\s*([$#?][a-zA-Z0-9_]+)\s*\]/g, (match, varKey) => {
-                if (variables.hasOwnProperty(varKey)) {
-                    return variables[varKey];
-                } else {
-                    logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable [${varKey}] ist nicht definiert.`, true);
-                    return match;
+            return str.replace(/\[\s*(.*?)\s*\]/g, (match, content) => {
+                const trimmed = content.trim();
+
+                // Nur wenn der Inhalt in [...] mit $, # oder ? beginnt, werten wir es als Variable aus
+                if (/^[$#?]/.test(trimmed)) {
+                    if (variables.hasOwnProperty(trimmed)) {
+                        return variables[trimmed];
+                    } else {
+                        logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable [${trimmed}] ist nicht definiert.`, true);
+                        return match;
+                    }
                 }
+
+                // Ansonsten ist es ein gewöhnlicher Wert (wie ein Hex-Code #ffffff)
+                return trimmed;
             });
         }
 
@@ -516,14 +521,12 @@ Beispiel:
             if (token === 'true') return true;
             if (token === 'false') return false;
 
-            logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiger Wert oder Operand: "${token}"`, true);
-            return null;
+            // Rohe Strings/Farbcodes direkt zurückgeben
+            return token;
         }
 
         function executeCommand(line, lineNum) {
             // 1. Zuweisung & Modifikation von Variablen: =, +=, -=, *=, /=
-            const varAssignRegex = /^\/([$#?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=\|\/=|=>|=)\s*(.+)$/;
-            // Exaktes Matching für Operatoren
             const opMatch = line.match(/^\/([$#?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=|\/=|=)\s*(.+)$/);
 
             if (opMatch) {
@@ -535,14 +538,12 @@ Beispiel:
 
                 rawValue = resolveVariablesInString(rawValue, lineNum);
 
-                // Prüfen ob Variable existiert bei Operatoren wie +=, -=, etc.
                 if (operator !== '=' && !variables.hasOwnProperty(fullVarKey)) {
                     logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable ${fullVarKey} existiert nicht und kann nicht verändert werden.`, true);
                     return false;
                 }
 
                 if (typeSymbol === '#') {
-                    // Zahlenverarbeitung
                     let operandValue = parseOperand(rawValue, lineNum);
                     if (operandValue === null || isNaN(Number(operandValue))) {
                         logToConsole(`TypFehler (Zeile ${lineNum}): Ungültige Zahl für Operation mit #${varName}: "${rawValue}"`, true);
@@ -567,7 +568,6 @@ Beispiel:
                     }
                 } 
                 else if (typeSymbol === '$') {
-                    // Textverarbeitung
                     if (operator !== '=' && operator !== '+=') {
                         logToConsole(`TypFehler (Zeile ${lineNum}): Operator ${operator} wird für Text-Variablen nicht unterstützt.`, true);
                         return false;
@@ -586,7 +586,6 @@ Beispiel:
                     }
                 } 
                 else if (typeSymbol === '?') {
-                    // Boolean
                     if (operator !== '=') {
                         logToConsole(`TypFehler (Zeile ${lineNum}): Nur '=' ist für Boolean-Variablen erlaubt.`, true);
                         return false;
@@ -613,33 +612,15 @@ Beispiel:
                     return false;
                 }
 
-                const content = printMatch[1].trim();
-                let result = "";
+                let content = printMatch[1].trim();
+                content = resolveVariablesInString(content, lineNum);
 
-                const tokenRegex = /(["'])(.*?)\1|\[\s*([$#?][a-zA-Z0-9_]+)\s*\]/g;
-                let match;
-
-                while ((match = tokenRegex.exec(content)) !== null) {
-                    if (match[2] !== undefined) {
-                        result += match[2];
-                    } else if (match[3] !== undefined) {
-                        const varKey = match[3];
-                        if (variables.hasOwnProperty(varKey)) {
-                            result += variables[varKey];
-                        } else {
-                            logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable [${varKey}] ist nicht definiert.`, true);
-                            return false;
-                        }
-                    }
-                }
-
-                logToConsole(result);
+                logToConsole(content);
                 return true;
             }
 
             // 3. /display Befehle (-web & -pixel)
             if (line.startsWith('/display')) {
-                // Parameter-Variablen global auflösen
                 const resolvedLine = resolveVariablesInString(line, lineNum);
 
                 // Option A: /display -web ("URL")
