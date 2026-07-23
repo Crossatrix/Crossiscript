@@ -218,12 +218,11 @@
             <div class="editor-wrapper">
                 <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
 Beispiel:
-/@x = 0
-/repeat (10): {
-    /display -pixel ([@x], 100) [#ffffff]
-    /wait (frame)
-    /@x += 10
-}"></textarea>
+/func [drawPixel] <@x, @y> {
+    /display -pixel ([@x], [@y]) [#ffffff]
+}
+
+drawPixel (100, 100)"></textarea>
             </div>
         </section>
 
@@ -287,7 +286,39 @@ Beispiel:
         resetDisplay();
 
         // --- COMPILER ENGINE ---
-        const variables = {};
+        const globalVariables = {};
+        const callStack = []; // Stack für lokale Variablenbereiche
+        const functions = {}; // Speicher für definierte Funktionen
+
+        function getVariable(key) {
+            // Erst im aktuellen lokalen Frame suchen (von oben nach unten)
+            for (let i = callStack.length - 1; i >= 0; i--) {
+                if (callStack[i].hasOwnProperty(key)) {
+                    return callStack[i][key];
+                }
+            }
+            // Ansonsten im globalen Speicher
+            if (globalVariables.hasOwnProperty(key)) {
+                return globalVariables[key];
+            }
+            return undefined;
+        }
+
+        function setVariable(key, value) {
+            // Wenn die Variable in einem lokalen Stack-Frame existiert, dort aktualisieren
+            for (let i = callStack.length - 1; i >= 0; i--) {
+                if (callStack[i].hasOwnProperty(key)) {
+                    callStack[i][key] = value;
+                    return;
+                }
+            }
+            // Ansonsten global zuweisen
+            globalVariables[key] = value;
+        }
+
+        function hasVariable(key) {
+            return getVariable(key) !== undefined;
+        }
 
         async function runCompiler() {
             const code = codeInput.value;
@@ -298,7 +329,9 @@ Beispiel:
 
             clearConsole();
             
-            for (let key in variables) delete variables[key];
+            for (let key in globalVariables) delete globalVariables[key];
+            for (let key in functions) delete functions[key];
+            callStack.length = 0;
 
             const lines = code.split('\n');
             await executeBlock(lines, 0, lines.length);
@@ -309,8 +342,9 @@ Beispiel:
                 const trimmed = content.trim();
 
                 if (/^[$@?]/.test(trimmed)) {
-                    if (variables.hasOwnProperty(trimmed)) {
-                        return variables[trimmed];
+                    const val = getVariable(trimmed);
+                    if (val !== undefined) {
+                        return val;
                     } else {
                         logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable [${trimmed}] ist nicht definiert.`, true);
                         return match;
@@ -334,6 +368,37 @@ Beispiel:
                     continue;
                 }
 
+                // 1. Deklaration einer Funktion: /func [name] <$param1, @param2> {
+                if (line.startsWith('/func')) {
+                    const funcRegex = /^\/func\s+\[\s*([a-zA-Z0-9_]+)\s*\]\s*(?:<(.*?)>)?\s*:\s*\{?$/;
+                    const altFuncRegex = /^\/func\s+\[\s*([a-zA-Z0-9_]+)\s*\]\s*(?:<(.*?)>)?\s*\{?$/;
+                    
+                    const match = line.match(funcRegex) || line.match(altFuncRegex);
+                    if (!match) {
+                        logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültige /func Syntax: "${line}"`, true);
+                        return false;
+                    }
+
+                    const funcName = match[1];
+                    const rawParams = match[2] ? match[2].split(',').map(p => p.trim()).filter(p => p.length > 0) : [];
+
+                    let blockEndIndex = findClosingBracket(lines, i);
+                    if (blockEndIndex === -1) {
+                        logToConsole(`SyntaxFehler (Zeile ${lineNum}): Fehlende schließende Klammer '}' für /func Block.`, true);
+                        return false;
+                    }
+
+                    functions[funcName] = {
+                        params: rawParams,
+                        startLine: i + 1,
+                        endLine: blockEndIndex
+                    };
+
+                    i = blockEndIndex + 1;
+                    continue;
+                }
+
+                // 2. Kontrollstruktur /repeat
                 if (line.startsWith('/repeat')) {
                     const repeatHeaderRegex = /^\/repeat\s*\((.*?)\)\s*:\s*\{?$/;
                     const match = line.match(repeatHeaderRegex);
@@ -367,6 +432,7 @@ Beispiel:
                     continue;
                 }
 
+                // 3. Kontrollstruktur /if
                 if (line.startsWith('/if')) {
                     let executedBranch = false;
                     let currentIdx = i;
@@ -425,8 +491,21 @@ Beispiel:
                     continue;
                 }
 
+                // 4. Aufruf einer Funktion: name (arg1, arg2)
+                const funcCallMatch = line.match(/^([a-zA-Z0-9_]+)\s*\((.*)\)$/);
+                if (funcCallMatch && !line.startsWith('/')) {
+                    const funcName = funcCallMatch[1];
+                    if (functions.hasOwnProperty(funcName)) {
+                        const rawArgs = funcCallMatch[2].trim();
+                        const success = await invokeFunction(funcName, rawArgs, lines, lineNum);
+                        if (!success) return false;
+                        i++;
+                        continue;
+                    }
+                }
+
                 if (!line.startsWith('/')) {
-                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Befehl muss mit '/' beginnen: "${line}"`, true);
+                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Befehl muss mit '/' beginnen oder ein gültiger Funktionsaufruf sein: "${line}"`, true);
                     return false;
                 }
 
@@ -436,6 +515,38 @@ Beispiel:
                 i++;
             }
             return true;
+        }
+
+        async function invokeFunction(funcName, rawArgsStr, lines, lineNum) {
+            const func = functions[funcName];
+            
+            // Argumente trennen & auswerten
+            let parsedArgs = [];
+            if (rawArgsStr.length > 0) {
+                const rawArgsList = rawArgsStr.split(',').map(a => a.trim());
+                for (let arg of rawArgsList) {
+                    const resolved = resolveVariablesInString(arg, lineNum);
+                    const val = parseOperand(resolved, lineNum);
+                    parsedArgs.push(val);
+                }
+            }
+
+            if (parsedArgs.length !== func.params.length) {
+                logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Funktion '${funcName}' erwartet ${func.params.length} Parameter, aber ${parsedArgs.length} wurden übergeben.`, true);
+                return false;
+            }
+
+            // Neuer lokaler Frame für die Funktion
+            const localScope = {};
+            for (let p = 0; p < func.params.length; p++) {
+                localScope[func.params[p]] = parsedArgs[p];
+            }
+
+            callStack.push(localScope);
+            const success = await executeBlock(lines, func.startLine, func.endLine);
+            callStack.pop();
+
+            return success;
         }
 
         function findClosingBracket(lines, startIdx) {
@@ -480,8 +591,9 @@ Beispiel:
 
         function parseOperand(token, lineNum) {
             if (token.startsWith('?') || token.startsWith('@') || token.startsWith('$')) {
-                if (variables.hasOwnProperty(token)) {
-                    return variables[token];
+                const val = getVariable(token);
+                if (val !== undefined) {
+                    return val;
                 } else {
                     logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable ${token} ist nicht definiert.`, true);
                     return null;
@@ -547,7 +659,7 @@ Beispiel:
 
                 rawValue = resolveVariablesInString(rawValue, lineNum);
 
-                if (operator !== '=' && !variables.hasOwnProperty(fullVarKey)) {
+                if (operator !== '=' && !hasVariable(fullVarKey)) {
                     logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable ${fullVarKey} existiert nicht.`, true);
                     return false;
                 }
@@ -561,19 +673,19 @@ Beispiel:
                     operandValue = Number(operandValue);
 
                     if (operator === '=') {
-                        variables[fullVarKey] = operandValue;
+                        setVariable(fullVarKey, operandValue);
                     } else if (operator === '+=') {
-                        variables[fullVarKey] += operandValue;
+                        setVariable(fullVarKey, getVariable(fullVarKey) + operandValue);
                     } else if (operator === '-=') {
-                        variables[fullVarKey] -= operandValue;
+                        setVariable(fullVarKey, getVariable(fullVarKey) - operandValue);
                     } else if (operator === '*=') {
-                        variables[fullVarKey] *= operandValue;
+                        setVariable(fullVarKey, getVariable(fullVarKey) * operandValue);
                     } else if (operator === '/=') {
                         if (operandValue === 0) {
                             logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Division durch Null.`, true);
                             return false;
                         }
-                        variables[fullVarKey] /= operandValue;
+                        setVariable(fullVarKey, getVariable(fullVarKey) / operandValue);
                     }
                 } 
                 else if (typeSymbol === '$') {
@@ -581,12 +693,12 @@ Beispiel:
                     const stringMatch = rawValue.match(/^["'](.*)["']$/);
                     if (stringMatch) stringVal = stringMatch[1];
 
-                    if (operator === '=') variables[fullVarKey] = stringVal;
-                    else if (operator === '+=') variables[fullVarKey] += stringVal;
+                    if (operator === '=') setVariable(fullVarKey, stringVal);
+                    else if (operator === '+=') setVariable(fullVarKey, getVariable(fullVarKey) + stringVal);
                 } 
                 else if (typeSymbol === '?') {
-                    if (rawValue === 'true' || rawValue === '1') variables[fullVarKey] = true;
-                    else if (rawValue === 'false' || rawValue === '0') variables[fullVarKey] = false;
+                    if (rawValue === 'true' || rawValue === '1') setVariable(fullVarKey, true);
+                    else if (rawValue === 'false' || rawValue === '0') setVariable(fullVarKey, false);
                 }
                 return true;
             }
