@@ -220,11 +220,10 @@
             <div class="editor-wrapper">
                 <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
 Beispiel:
-/#Anzahl = 5
-/$Text = &quot;Hallo Loop!&quot;
-
-/repeat ([#Anzahl]): {
-    /print([$Text])
+/#X = 0
+/repeat (10): {
+    /display -pixel ([#X], [#X]) #ff0000
+    /#X += 10
 }"></textarea>
             </div>
         </section>
@@ -522,35 +521,76 @@ Beispiel:
         }
 
         function executeCommand(line, lineNum) {
-            // 1. Zuweisung von Variablen: /$Var = "Text", /#Var = 123, /?Var = true
-            const varAssignRegex = /^\/([$#?])([a-zA-Z0-9_]+)\s*=\s*(.+)$/;
-            const varMatch = line.match(varAssignRegex);
+            // 1. Zuweisung & Modifikation von Variablen: =, +=, -=, *=, /=
+            const varAssignRegex = /^\/([$#?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=\|\/=|=>|=)\s*(.+)$/;
+            // Exaktes Matching für Operatoren
+            const opMatch = line.match(/^\/([$#?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=|\/=|=)\s*(.+)$/);
 
-            if (varMatch) {
-                const typeSymbol = varMatch[1];
-                const varName = varMatch[2];
-                let rawValue = varMatch[3].trim();
+            if (opMatch) {
+                const typeSymbol = opMatch[1];
+                const varName = opMatch[2];
+                const operator = opMatch[3];
+                let rawValue = opMatch[4].trim();
                 const fullVarKey = typeSymbol + varName;
 
                 rawValue = resolveVariablesInString(rawValue, lineNum);
 
-                if (typeSymbol === '$') {
-                    const stringMatch = rawValue.match(/^["'](.*)["']$/);
-                    if (!stringMatch) {
-                        logToConsole(`TypFehler (Zeile ${lineNum}): Text-Variable $${varName} erwartet Anführungszeichen.`, true);
+                // Prüfen ob Variable existiert bei Operatoren wie +=, -=, etc.
+                if (operator !== '=' && !variables.hasOwnProperty(fullVarKey)) {
+                    logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable ${fullVarKey} existiert nicht und kann nicht verändert werden.`, true);
+                    return false;
+                }
+
+                if (typeSymbol === '#') {
+                    // Zahlenverarbeitung
+                    let operandValue = parseOperand(rawValue, lineNum);
+                    if (operandValue === null || isNaN(Number(operandValue))) {
+                        logToConsole(`TypFehler (Zeile ${lineNum}): Ungültige Zahl für Operation mit #${varName}: "${rawValue}"`, true);
                         return false;
                     }
-                    variables[fullVarKey] = stringMatch[1];
+                    operandValue = Number(operandValue);
+
+                    if (operator === '=') {
+                        variables[fullVarKey] = operandValue;
+                    } else if (operator === '+=') {
+                        variables[fullVarKey] += operandValue;
+                    } else if (operator === '-=') {
+                        variables[fullVarKey] -= operandValue;
+                    } else if (operator === '*=') {
+                        variables[fullVarKey] *= operandValue;
+                    } else if (operator === '/=') {
+                        if (operandValue === 0) {
+                            logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Division durch Null ist nicht erlaubt.`, true);
+                            return false;
+                        }
+                        variables[fullVarKey] /= operandValue;
+                    }
                 } 
-                else if (typeSymbol === '#') {
-                    const numValue = Number(rawValue);
-                    if (isNaN(numValue)) {
-                        logToConsole(`TypFehler (Zeile ${lineNum}): Ungültige Zahl für #${varName}: "${rawValue}"`, true);
+                else if (typeSymbol === '$') {
+                    // Textverarbeitung
+                    if (operator !== '=' && operator !== '+=') {
+                        logToConsole(`TypFehler (Zeile ${lineNum}): Operator ${operator} wird für Text-Variablen nicht unterstützt.`, true);
                         return false;
                     }
-                    variables[fullVarKey] = numValue;
+
+                    let stringVal = rawValue;
+                    const stringMatch = rawValue.match(/^["'](.*)["']$/);
+                    if (stringMatch) {
+                        stringVal = stringMatch[1];
+                    }
+
+                    if (operator === '=') {
+                        variables[fullVarKey] = stringVal;
+                    } else if (operator === '+=') {
+                        variables[fullVarKey] += stringVal;
+                    }
                 } 
                 else if (typeSymbol === '?') {
+                    // Boolean
+                    if (operator !== '=') {
+                        logToConsole(`TypFehler (Zeile ${lineNum}): Nur '=' ist für Boolean-Variablen erlaubt.`, true);
+                        return false;
+                    }
                     if (rawValue === 'true' || rawValue === '1') {
                         variables[fullVarKey] = true;
                     } else if (rawValue === 'false' || rawValue === '0') {
