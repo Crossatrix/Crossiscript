@@ -178,10 +178,16 @@
             <div class="editor-wrapper">
                 <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
 Beispiel:
-/$Name = &quot;Alex&quot;
-/#Zahl = 42
+/#Zahl = 5
 /?Aktiv = true
-/print(&quot;Die Zahl ist &quot; [#Zahl] &quot; und der Name &quot; [$Name])"></textarea>
+
+/if (?Aktiv): {
+    /print(&quot;System ist aktiv!&quot;)
+}
+
+/if (#Zahl > 3): {
+    /print(&quot;Zahl ist grösser als 3&quot;)
+}"></textarea>
             </div>
         </section>
 
@@ -240,24 +246,141 @@ Beispiel:
             for (let key in variables) delete variables[key];
 
             const lines = code.split('\n');
+            executeBlock(lines, 0, lines.length);
+        }
 
-            for (let i = 0; i < lines.length; i++) {
+        // Block-Ausführung zur Handhabung von Kontrollstrukturen wie /if
+        function executeBlock(lines, startLine, endLine) {
+            let i = startLine;
+
+            while (i < endLine) {
                 const lineNum = i + 1;
-                const line = lines[i].trim();
+                const rawLine = lines[i];
+                const line = rawLine.trim();
 
                 // Leere Zeilen überspringen
-                if (line === '') continue;
+                if (line === '' || line === '}') {
+                    i++;
+                    continue;
+                }
 
                 // Syntax-Prüfung: Befehle MÜSSEN mit '/' beginnen
                 if (!line.startsWith('/')) {
                     logToConsole(`SyntaxFehler (Zeile ${lineNum}): Befehl muss mit '/' beginnen: "${line}"`, true);
-                    return;
+                    return false;
                 }
 
-                // Befehl verarbeiten
+                // PRÜFUNG: Ist es ein /if-Befehl?
+                if (line.startsWith('/if')) {
+                    const ifHeaderRegex = /^\/if\s*\((.*?)\)\s*:\s*\{?$/;
+                    const match = line.match(ifHeaderRegex);
+
+                    if (!match) {
+                        logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiges /if Format: "${line}"`, true);
+                        return false;
+                    }
+
+                    const conditionStr = match[1].trim();
+
+                    // Block-Ende (schließende Klammer '}') finden
+                    let blockEndIndex = -1;
+                    let openBrackets = 0;
+
+                    for (let j = i; j < lines.length; j++) {
+                        if (lines[j].includes('{')) openBrackets++;
+                        if (lines[j].includes('}')) {
+                            openBrackets--;
+                            if (openBrackets === 0) {
+                                blockEndIndex = j;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (blockEndIndex === -1) {
+                        logToConsole(`SyntaxFehler (Zeile ${lineNum}): Fehlende schliessende Klammer '}' für /if Block.`, true);
+                        return false;
+                    }
+
+                    // Bedingung auswerten
+                    const conditionResult = evaluateCondition(conditionStr, lineNum);
+                    if (conditionResult === null) return false; // Fehler bei der Bedingung
+
+                    if (conditionResult === true) {
+                        // Befehle innerhalb des /if-Blocks ausführen
+                        const success = executeBlock(lines, i + 1, blockEndIndex);
+                        if (!success) return false;
+                    }
+
+                    // Springe hinter den /if-Block
+                    i = blockEndIndex + 1;
+                    continue;
+                }
+
+                // Einzelnen Befehl verarbeiten
                 const success = executeCommand(line, lineNum);
-                if (!success) break; // Bei Fehler Abbrechen
+                if (!success) return false;
+
+                i++;
             }
+            return true;
+        }
+
+        // Hilfsfunktion zum Evaluieren von Bedingungen
+        function evaluateCondition(cond, lineNum) {
+            // Operator ermitteln (<=, >=, !=, =, >, <)
+            const opMatch = cond.match(/(<=|>=|!=|=|>=|<=|>|<)/);
+
+            if (opMatch) {
+                const operator = opMatch[1];
+                const parts = cond.split(operator);
+                const leftVal = parseOperand(parts[0].trim(), lineNum);
+                const rightVal = parseOperand(parts[1].trim(), lineNum);
+
+                if (leftVal === null || rightVal === null) return null;
+
+                switch (operator) {
+                    case '=':  return leftVal === rightVal;
+                    case '!=': return leftVal !== rightVal;
+                    case '>':  return leftVal > rightVal;
+                    case '<':  return leftVal < rightVal;
+                    case '>=': return leftVal >= rightVal;
+                    case '<=': return leftVal <= rightVal;
+                }
+            } else {
+                // Einzelne Variable als Bedingung z.B. (?Aktiv)
+                const val = parseOperand(cond, lineNum);
+                if (val === null) return null;
+                return Boolean(val);
+            }
+        }
+
+        // Hilfsfunktion zum Auflösen von Operanden (Variablen oder Werte)
+        function parseOperand(token, lineNum) {
+            // 1. Variable z. B. ?Aktiv, #Zahl, $Name
+            if (token.startsWith('?') || token.startsWith('#') || token.startsWith('$')) {
+                if (variables.hasOwnProperty(token)) {
+                    return variables[token];
+                } else {
+                    logToConsole(`LaufzeitFehler (Zeile ${lineNum}): Variable ${token} ist nicht definiert.`, true);
+                    return null;
+                }
+            }
+            // 2. Zahlen-Literal
+            if (!isNaN(Number(token))) {
+                return Number(token);
+            }
+            // 3. String-Literal
+            const strMatch = token.match(/^["'](.*)["']$/);
+            if (strMatch) {
+                return strMatch[1];
+            }
+            // 4. Boolean-Literal
+            if (token === 'true') return true;
+            if (token === 'false') return false;
+
+            logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiger Wert oder Operand: "${token}"`, true);
+            return null;
         }
 
         function executeCommand(line, lineNum) {
@@ -319,7 +442,6 @@ Beispiel:
                 // Tokens innerhalb von /print zerlegen (Strings in "" oder Variables in [...])
                 const tokenRegex = /(["'])(.*?)\1|\[\s*([$#?][a-zA-Z0-9_]+)\s*\]/g;
                 let match;
-                let lastIndex = 0;
 
                 while ((match = tokenRegex.exec(content)) !== null) {
                     if (match[2] !== undefined) {
