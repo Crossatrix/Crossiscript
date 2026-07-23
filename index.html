@@ -220,8 +220,8 @@
             <div class="editor-wrapper">
                 <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
 Beispiel:
-/#X = 100
-/display -pixel ([#X], 100) [#ffffff]"></textarea>
+/@X = 1
+/display -pixel ([@X], [@X]) [#ffffff]"></textarea>
             </div>
         </section>
 
@@ -317,8 +317,8 @@ Beispiel:
             return str.replace(/\[\s*(.*?)\s*\]/g, (match, content) => {
                 const trimmed = content.trim();
 
-                // Nur wenn der Inhalt in [...] mit $, # oder ? beginnt, werten wir es als Variable aus
-                if (/^[$#?]/.test(trimmed)) {
+                // Nur wenn der Inhalt in [...] mit $, @ oder ? beginnt, werten wir es als Variable aus
+                if (/^[$@?]/.test(trimmed)) {
                     if (variables.hasOwnProperty(trimmed)) {
                         return variables[trimmed];
                     } else {
@@ -503,7 +503,7 @@ Beispiel:
         }
 
         function parseOperand(token, lineNum) {
-            if (token.startsWith('?') || token.startsWith('#') || token.startsWith('$')) {
+            if (token.startsWith('?') || token.startsWith('@') || token.startsWith('$')) {
                 if (variables.hasOwnProperty(token)) {
                     return variables[token];
                 } else {
@@ -527,7 +527,7 @@ Beispiel:
 
         function executeCommand(line, lineNum) {
             // 1. Zuweisung & Modifikation von Variablen: =, +=, -=, *=, /=
-            const opMatch = line.match(/^\/([$#?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=|\/=|=)\s*(.+)$/);
+            const opMatch = line.match(/^\/([$@?])([a-zA-Z0-9_]+)\s*(\+=|-=|\*=|\/=|=)\s*(.+)$/);
 
             if (opMatch) {
                 const typeSymbol = opMatch[1];
@@ -543,10 +543,10 @@ Beispiel:
                     return false;
                 }
 
-                if (typeSymbol === '#') {
+                if (typeSymbol === '@') {
                     let operandValue = parseOperand(rawValue, lineNum);
                     if (operandValue === null || isNaN(Number(operandValue))) {
-                        logToConsole(`TypFehler (Zeile ${lineNum}): Ungültige Zahl für Operation mit #${varName}: "${rawValue}"`, true);
+                        logToConsole(`TypFehler (Zeile ${lineNum}): Ungültige Zahl für Operation mit @${varName}: "${rawValue}"`, true);
                         return false;
                     }
                     operandValue = Number(operandValue);
@@ -565,107 +565,4 @@ Beispiel:
                             return false;
                         }
                         variables[fullVarKey] /= operandValue;
-                    }
-                } 
-                else if (typeSymbol === '$') {
-                    if (operator !== '=' && operator !== '+=') {
-                        logToConsole(`TypFehler (Zeile ${lineNum}): Operator ${operator} wird für Text-Variablen nicht unterstützt.`, true);
-                        return false;
-                    }
-
-                    let stringVal = rawValue;
-                    const stringMatch = rawValue.match(/^["'](.*)["']$/);
-                    if (stringMatch) {
-                        stringVal = stringMatch[1];
-                    }
-
-                    if (operator === '=') {
-                        variables[fullVarKey] = stringVal;
-                    } else if (operator === '+=') {
-                        variables[fullVarKey] += stringVal;
-                    }
-                } 
-                else if (typeSymbol === '?') {
-                    if (operator !== '=') {
-                        logToConsole(`TypFehler (Zeile ${lineNum}): Nur '=' ist für Boolean-Variablen erlaubt.`, true);
-                        return false;
-                    }
-                    if (rawValue === 'true' || rawValue === '1') {
-                        variables[fullVarKey] = true;
-                    } else if (rawValue === 'false' || rawValue === '0') {
-                        variables[fullVarKey] = false;
-                    } else {
-                        logToConsole(`TypFehler (Zeile ${lineNum}): Boolean-Variable ?${varName} muss true oder false sein.`, true);
-                        return false;
-                    }
-                }
-                return true;
-            }
-
-            // 2. /print Befehl
-            if (line.startsWith('/print')) {
-                const printContentRegex = /^\/print\s*\((.*)\)$/;
-                const printMatch = line.match(printContentRegex);
-
-                if (!printMatch) {
-                    logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültiges /print Syntax.`, true);
-                    return false;
-                }
-
-                let content = printMatch[1].trim();
-                content = resolveVariablesInString(content, lineNum);
-
-                logToConsole(content);
-                return true;
-            }
-
-            // 3. /display Befehle (-web & -pixel)
-            if (line.startsWith('/display')) {
-                const resolvedLine = resolveVariablesInString(line, lineNum);
-
-                // Option A: /display -web ("URL")
-                const webMatch = resolvedLine.match(/^\/display\s+-web\s*\(\s*(["'])(.*?)\1\s*\)$/);
-                if (webMatch) {
-                    const url = webMatch[2];
-                    canvas.style.display = "none";
-                    iframe.style.display = "block";
-                    iframe.src = url;
-                    return true;
-                }
-
-                // Option B: /display -pixel (x,y) color
-                const pixelMatch = resolvedLine.match(/^\/display\s+-pixel\s*\(\s*(.*?)\s*,\s*(.*?)\s*\)\s*(.+)$/);
-                if (pixelMatch) {
-                    const xVal = parseOperand(pixelMatch[1].trim(), lineNum);
-                    const yVal = parseOperand(pixelMatch[2].trim(), lineNum);
-                    let colorRaw = pixelMatch[3].trim();
-
-                    if (xVal === null || yVal === null) return false;
-
-                    let hexColor = colorRaw;
-                    if (colorRaw.startsWith('$') || colorRaw.startsWith('#')) {
-                        hexColor = parseOperand(colorRaw, lineNum);
-                    } else if (colorRaw.startsWith('"') || colorRaw.startsWith("'")) {
-                        const matchStr = colorRaw.match(/^["'](.*)["']$/);
-                        if (matchStr) hexColor = matchStr[1];
-                    }
-
-                    iframe.style.display = "none";
-                    canvas.style.display = "block";
-
-                    ctx.fillStyle = hexColor;
-                    ctx.fillRect(Math.floor(xVal), Math.floor(yVal), 1, 1);
-                    return true;
-                }
-
-                logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültige /display Syntax. Nutze -web oder -pixel.`, true);
-                return false;
-            }
-
-            logToConsole(`SyntaxFehler (Zeile ${lineNum}): Unbekannter oder fehlerhafter Befehl: "${line}"`, true);
-            return false;
-        }
-    </script>
-
-</body>
-</html>
+       
