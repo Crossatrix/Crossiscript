@@ -118,12 +118,20 @@
             tab-size: 4;
         }
 
-        /* Console Output Section */
-        .console-container {
-            width: 40%;
+        /* Right Panel: Console + Display */
+        .right-pane {
+            width: 500px;
             display: flex;
             flex-direction: column;
             background-color: var(--console-bg);
+        }
+
+        .console-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid var(--border);
+            min-height: 150px;
         }
 
         #console-output {
@@ -145,18 +153,52 @@
             color: #f14c4c;
         }
 
+        /* Display Container Section */
+        .display-container {
+            height: 535px;
+            display: flex;
+            flex-direction: column;
+            background-color: #111;
+            align-items: center;
+        }
+
+        .display-viewport {
+            width: 500px;
+            height: 500px;
+            position: relative;
+            background-color: #000;
+        }
+
+        #display-canvas {
+            width: 500px;
+            height: 500px;
+            display: block;
+            background-color: #000;
+        }
+
+        #display-frame {
+            width: 500px;
+            height: 500px;
+            border: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            display: none;
+            background-color: #fff;
+        }
+
         /* Responsive Layout für kleine Bildschirme / Mobilgeräte */
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
             main {
                 flex-direction: column;
+                overflow-y: auto;
             }
-            .console-container {
+            .right-pane {
                 width: 100%;
-                height: 40%;
-                border-top: 1px solid var(--border);
             }
-            .editor-container {
-                border-right: none;
+            .display-container {
+                height: auto;
+                padding-bottom: 15px;
             }
         }
     </style>
@@ -178,25 +220,30 @@
             <div class="editor-wrapper">
                 <textarea id="code-input" spellcheck="false" placeholder="Schreibe deinen Code hier...
 Beispiel:
-/#Zahl = 10
-
-/if (#Zahl = 5): {
-    /print(&quot;Zahl ist 5&quot;)
-} ifelse (#Zahl = 10): {
-    /print(&quot;Zahl ist 10&quot;)
-} else: {
-    /print(&quot;Zahl ist weder 5 noch 10&quot;)
-}"></textarea>
+/display -pixel (250,250) #ff0000
+/display -web (&quot;https://example.com&quot;)"></textarea>
             </div>
         </section>
 
-        <!-- Output Pane -->
-        <section class="console-container">
-            <div class="panel-header">Konsole / Ausgabe</div>
-            <div id="console-output">
-                <div class="log-entry" style="color: #888;">// Bereit. Gib Code ein und klicke auf "Ausführen".</div>
-            </div>
-        </section>
+        <!-- Right Side: Console + Display Viewport -->
+        <div class="right-pane">
+            <!-- Console Output Section -->
+            <section class="console-container">
+                <div class="panel-header">Konsole / Ausgabe</div>
+                <div id="console-output">
+                    <div class="log-entry" style="color: #888;">// Bereit. Gib Code ein und klicke auf "Ausführen".</div>
+                </div>
+            </section>
+
+            <!-- Display Screen Section -->
+            <section class="display-container">
+                <div class="panel-header" style="width: 100%;">Display (500 x 500)</div>
+                <div class="display-viewport">
+                    <canvas id="display-canvas" width="500" height="500"></canvas>
+                    <iframe id="display-frame"></iframe>
+                </div>
+            </section>
+        </div>
     </main>
 
     <script>
@@ -225,7 +272,24 @@ Beispiel:
 
         function clearConsole() {
             document.getElementById('console-output').innerHTML = '';
+            resetDisplay();
         }
+
+        // Display-Hilfsfunktionen
+        const canvas = document.getElementById('display-canvas');
+        const ctx = canvas.getContext('2d');
+        const iframe = document.getElementById('display-frame');
+
+        function resetDisplay() {
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, 500, 500);
+            iframe.src = "about:blank";
+            iframe.style.display = "none";
+            canvas.style.display = "block";
+        }
+
+        // Canvas initialisieren
+        resetDisplay();
 
         // --- COMPILER ENGINE ---
 
@@ -271,15 +335,13 @@ Beispiel:
                     while (currentIdx < endLine) {
                         const curLine = lines[currentIdx].trim();
 
-                        // Match /if (...): { oder ifelse (...): { oder else: {
                         const ifMatch = curLine.match(/^(\/if|ifelse)\s*\((.*?)\)\s*:\s*\{?$/);
                         const elseMatch = curLine.match(/^else\s*:\s*\{?$/);
 
                         if (!ifMatch && !elseMatch) {
-                            break; // Kein weitere Verzweigung im selben Chain
+                            break;
                         }
 
-                        // Block-Ende (schließende Klammer '}') finden
                         let blockEndIndex = findClosingBracket(lines, currentIdx);
                         if (blockEndIndex === -1) {
                             logToConsole(`SyntaxFehler (Zeile ${currentIdx + 1}): Fehlende schliessende Klammer '}' für Block.`, true);
@@ -296,7 +358,7 @@ Beispiel:
                                 if (conditionResult === true) {
                                     const success = executeBlock(lines, currentIdx + 1, blockEndIndex);
                                     if (!success) return false;
-                                    executedBranch = true; // Zweig ausgeführt!
+                                    executedBranch = true;
                                 }
                             }
                         } else if (elseMatch) {
@@ -307,7 +369,6 @@ Beispiel:
                             }
                         }
 
-                        // Springe hinter den aktuellen Block und schaue, ob ein ifelse oder else folgt
                         currentIdx = blockEndIndex + 1;
                         while (currentIdx < endLine && lines[currentIdx].trim() === '') {
                             currentIdx++;
@@ -346,7 +407,6 @@ Beispiel:
             return true;
         }
 
-        // Hilfsfunktion zum Finden der passenden schließenden Klammer '}'
         function findClosingBracket(lines, startIdx) {
             let openBrackets = 0;
             for (let j = startIdx; j < lines.length; j++) {
@@ -361,9 +421,7 @@ Beispiel:
             return -1;
         }
 
-        // Hilfsfunktion zum Evaluieren von Bedingungen
         function evaluateCondition(cond, lineNum) {
-            // Operator ermitteln (<=, >=, !=, =, >, <)
             const opMatch = cond.match(/(<=|>=|!=|=|>=|<=|>|<)/);
 
             if (opMatch) {
@@ -383,16 +441,13 @@ Beispiel:
                     case '<=': return leftVal <= rightVal;
                 }
             } else {
-                // Einzelne Variable als Bedingung z.B. (?Aktiv)
                 const val = parseOperand(cond, lineNum);
                 if (val === null) return null;
                 return Boolean(val);
             }
         }
 
-        // Hilfsfunktion zum Auflösen von Operanden (Variablen oder Werte)
         function parseOperand(token, lineNum) {
-            // 1. Variable z. B. ?Aktiv, #Zahl, $Name
             if (token.startsWith('?') || token.startsWith('#') || token.startsWith('$')) {
                 if (variables.hasOwnProperty(token)) {
                     return variables[token];
@@ -401,16 +456,13 @@ Beispiel:
                     return null;
                 }
             }
-            // 2. Zahlen-Literal
             if (!isNaN(Number(token))) {
                 return Number(token);
             }
-            // 3. String-Literal
             const strMatch = token.match(/^["'](.*)["']$/);
             if (strMatch) {
                 return strMatch[1];
             }
-            // 4. Boolean-Literal
             if (token === 'true') return true;
             if (token === 'false') return false;
 
@@ -430,7 +482,6 @@ Beispiel:
                 const fullVarKey = typeSymbol + varName;
 
                 if (typeSymbol === '$') {
-                    // String Zuweisung
                     const stringMatch = rawValue.match(/^["'](.*)["']$/);
                     if (!stringMatch) {
                         logToConsole(`TypFehler (Zeile ${lineNum}): Text-Variable $${varName} erwartet Anführungszeichen.`, true);
@@ -439,7 +490,6 @@ Beispiel:
                     variables[fullVarKey] = stringMatch[1];
                 } 
                 else if (typeSymbol === '#') {
-                    // Number Zuweisung (Ganzzahl oder Kommazahl)
                     const numValue = Number(rawValue);
                     if (isNaN(numValue)) {
                         logToConsole(`TypFehler (Zeile ${lineNum}): Ungültige Zahl für #${varName}: "${rawValue}"`, true);
@@ -448,7 +498,6 @@ Beispiel:
                     variables[fullVarKey] = numValue;
                 } 
                 else if (typeSymbol === '?') {
-                    // Boolean Zuweisung
                     if (rawValue === 'true' || rawValue === '1') {
                         variables[fullVarKey] = true;
                     } else if (rawValue === 'false' || rawValue === '0') {
@@ -474,16 +523,13 @@ Beispiel:
                 const content = printMatch[1].trim();
                 let result = "";
 
-                // Tokens innerhalb von /print zerlegen (Strings in "" oder Variables in [...])
                 const tokenRegex = /(["'])(.*?)\1|\[\s*([$#?][a-zA-Z0-9_]+)\s*\]/g;
                 let match;
 
                 while ((match = tokenRegex.exec(content)) !== null) {
                     if (match[2] !== undefined) {
-                        // String-Literale
                         result += match[2];
                     } else if (match[3] !== undefined) {
-                        // Variablenaufruf z.B. [$Name] oder [#Zahl]
                         const varKey = match[3];
                         if (variables.hasOwnProperty(varKey)) {
                             result += variables[varKey];
@@ -496,6 +542,48 @@ Beispiel:
 
                 logToConsole(result);
                 return true;
+            }
+
+            // 3. /display Befehle (-web & -pixel)
+            if (line.startsWith('/display')) {
+                // Option A: /display -web ("URL")
+                const webMatch = line.match(/^\/display\s+-web\s*\(\s*(["'])(.*?)\1\s*\)$/);
+                if (webMatch) {
+                    const url = webMatch[2];
+                    canvas.style.display = "none";
+                    iframe.style.display = "block";
+                    iframe.src = url;
+                    return true;
+                }
+
+                // Option B: /display -pixel (x,y) color
+                const pixelMatch = line.match(/^\/display\s+-pixel\s*\(\s*(.*?)\s*,\s*(.*?)\s*\)\s*(.+)$/);
+                if (pixelMatch) {
+                    const xVal = parseOperand(pixelMatch[1].trim(), lineNum);
+                    const yVal = parseOperand(pixelMatch[2].trim(), lineNum);
+                    let colorRaw = pixelMatch[3].trim();
+
+                    if (xVal === null || yVal === null) return false;
+
+                    // Hex-Farbe auflösen oder Fallback
+                    let hexColor = colorRaw;
+                    if (colorRaw.startsWith('$') || colorRaw.startsWith('#')) {
+                        hexColor = parseOperand(colorRaw, lineNum);
+                    } else if (colorRaw.startsWith('"') || colorRaw.startsWith("'")) {
+                        const matchStr = colorRaw.match(/^["'](.*)["']$/);
+                        if (matchStr) hexColor = matchStr[1];
+                    }
+
+                    iframe.style.display = "none";
+                    canvas.style.display = "block";
+
+                    ctx.fillStyle = hexColor;
+                    ctx.fillRect(Math.floor(xVal), Math.floor(yVal), 1, 1);
+                    return true;
+                }
+
+                logToConsole(`SyntaxFehler (Zeile ${lineNum}): Ungültige /display Syntax. Nutze -web oder -pixel.`, true);
+                return false;
             }
 
             logToConsole(`SyntaxFehler (Zeile ${lineNum}): Unbekannter oder fehlerhafter Befehl: "${line}"`, true);
